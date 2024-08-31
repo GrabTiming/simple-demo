@@ -10,6 +10,14 @@
     <packaging>pom</packaging>
     <modules>
         <module>simple-filter</module>
+        <module>simple-redis</module>
+        <module>simple-swagger</module>
+        <module>simple-elasticsearch</module>
+        <module>simple-QRcode</module>
+        <module>simple-shortLink</module>
+        <module>simple-MQ</module>
+        <module>simple-AOP</module>
+        <module>simple-shiro</module>
     </modules>
 
     <parent>
@@ -28,6 +36,26 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+
+        <!--mybatisPlus依赖-->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+            <version>3.4.3</version>
+        </dependency>
+        <!--mysql数据库驱动-->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.25</version>
+        </dependency>
+
+
 
     </dependencies>
 
