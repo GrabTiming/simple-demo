@@ -1,6 +1,9 @@
 package com.Lnn.util;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.mockito.internal.util.collections.ListUtil;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
@@ -8,14 +11,8 @@ import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
@@ -33,7 +30,7 @@ public class ExportUtil {
     /**
      * 导出本地任意文件
      */
-    public static boolean exportFile(File file, HttpServletResponse response){
+    public static boolean exportFile(File file, HttpServletResponse response) throws ExecutionException, InterruptedException {
 
         response.setContentType("application/octet-stream;");
         response.setCharacterEncoding("UTF-8");
@@ -42,114 +39,78 @@ public class ExportUtil {
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }
+        long fileSize = file.length();
+        int chunkSize = 1024 * 1024 ; // 1MB
+        int chunkCount = (int) Math.ceil((double) fileSize / chunkSize);
 
-        long total = file.length();
-        long chunkSize = (total + THREAD_NUM - 1)/THREAD_NUM;
+        ExecutorService executorService = Executors.newFixedThreadPool(4);
+        List<Future<byte[]>> futures = new ArrayList<>();
 
-        //每个线程处理出的结果需要放在一个线程安全的集合类
-        List<Future<List<String>>> futureList = new ArrayList<>();
-
-        ExecutorService executor = Executors.newFixedThreadPool(THREAD_NUM);
-        long start = 0;
-        Map<Long ,Long> chunkMap = new HashMap<>();
-        //分块处理
-        for(int i=0;i<THREAD_NUM;i++)
-        {
-            chunkSize = padding(start,chunkSize,file);
-            chunkMap.put(start,chunkSize);
-            start+=chunkSize;
+        for (int i = 0; i < chunkCount; i++) {
+            long start = i * chunkSize;
+            long size = Math.min(chunkSize,fileSize-start);
+            futures.add(executorService.submit(new ChunkReader(file, start, size)));
         }
-        //分块处理后，怎么按原来的顺序放入？
 
-//        for(Map.Entry<Long,Long> entry : chunkMap.entrySet()){
-//            Future<List<String>> future = executor.submit(() -> handleChunk(file, entry.getKey(), entry.getValue()));
-//            futureList.add(future);
-//        }
+        // 收集结果并确保顺序
+        List<byte[]> resultChunks = new ArrayList<>(chunkCount);
+        for (Future<byte[]> future : futures) {
+            resultChunks.add(future.get());
+        }
 
-        executor.shutdown();
-        // 将结果按顺序写入响应输出流
+        // 合并结果
+        byte[] finalResult = mergeChunks(resultChunks);
+        executorService.shutdown();
 
-        ReentrantLock lock = new ReentrantLock();
-
-        for (Future<List<String>> future : futureList) {
-            lock.lock();
-            try {
-                List<String> lines = future.get();
-
-                for (String line : lines) {
-                    if (!line.isEmpty()) {
-                        log.info("line: {}", line);
-                        // 使用 UTF-8 编码写入输出流
-                        response.getOutputStream().write(line.getBytes(StandardCharsets.UTF_8));
-                        response.getOutputStream().write(System.lineSeparator().getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-            } catch (ExecutionException | InterruptedException | IOException e) {
-                throw new RuntimeException(e);
-            } finally {
-                lock.unlock();
-            }
+        try {
+            response.getOutputStream().write(finalResult);
+        } catch (IOException e) {
+            log.info("写入响应输出流出错");
+            return false;
         }
 
         return true;
     }
 
-    /**
-     * 调整分块的长度，使每个分块结尾都是结束符
-     * @param start 区块起点
-     * @param chunkSize 区块长度
-     * @param file 文件
-     * @return 实际的区块长度
-     */
-    private static long padding(long start,long chunkSize,File file)
-    {
-        try(RandomAccessFile randomAccessFile = new RandomAccessFile(file,"r")){
+    @Data
+    @AllArgsConstructor
+    private static class ChunkReader implements Callable<byte[]>{
 
-            randomAccessFile.seek(start+chunkSize);
-            boolean eol = false;
-            switch (randomAccessFile.read()){
-                case -1:
-                case '\n':
-                    eol = true;
-                    break;
-                case '\r':
-                    eol = true;
-                    break;
-                default:
-                    break;
-            }
-            if(!eol)
-            {
-                String readLine = randomAccessFile.readLine();
-                chunkSize+=readLine.getBytes(charset).length;
-                chunkSize+=1;
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        private File file;
+
+        private long start;
+
+        private long chunkSize;
+
+        @Override
+        public byte[] call() throws Exception {
+            return handleChunk(file, start, chunkSize);
         }
-        return chunkSize;
+    }
+
+    private static byte[] mergeChunks(List<byte[]> chunks) {
+        int totalLength = 0;
+        for (byte[] chunk : chunks) {
+            totalLength += chunk.length;
+        }
+        byte[] result = new byte[totalLength];
+        int currentIndex = 0;
+        for (byte[] chunk : chunks) {
+            System.arraycopy(chunk, 0, result, currentIndex, chunk.length);
+            currentIndex += chunk.length;
+        }
+        return result;
     }
 
     private static byte[] handleChunk(File file,long start,long chunkSize){
 
         int cnt = 0;
         byte[] result = new byte[(int)chunkSize];
-        ByteBuffer buffer = ByteBuffer.allocate(1024);
+
         while (cnt < RETRY_CNT) {
             try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
                 randomAccessFile.seek(start);
-                int alreadyRead = 0 ;//已读字节数
-                while(alreadyRead < chunkSize) {
-                    int toRead = (int) Math.min(chunkSize - alreadyRead, BUFFER_SIZE);//将要读取的字节数
-                    int readLen = randomAccessFile.read(buffer.array(),alreadyRead,toRead);
-                    if (readLen == -1) {
-                        break;
-                    }
-                    alreadyRead += readLen;
-                    buffer.limit(readLen);
-                    System.arraycopy(buffer.array(),0,result,alreadyRead,readLen);
-                    buffer.clear();
-                }
+                randomAccessFile.read(result);
                 return result;
             } catch (IOException e) {
                 cnt++;
