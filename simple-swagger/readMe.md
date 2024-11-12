@@ -69,3 +69,11 @@ public class SwaggerConfig {
 
 }
 ```
+
+## 三. 在application.yml配置以下信息
+```yml
+spring:
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher # swagger
+```
