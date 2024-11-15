@@ -152,14 +152,14 @@ public class ESClient {
      * @return
      */
     //批量插入
-    public <T> BulkResponse bulkCreateDocument(String index, List<Pair<String,T>> dataList) throws IOException {
+    public <T> boolean bulkCreateDocument(String index, List<Pair<String,T>> dataList) throws IOException {
         BulkRequest request = new BulkRequest();
         for(Pair<String, T> pair : dataList){
             request.add(new IndexRequest(index)
                     .id(pair.getKey())
                     .source(JSON.toJSONString(pair.getValue()), XContentType.JSON));
         }
-        return restHighLevelClient.bulk(request, RequestOptions.DEFAULT);
+        return !restHighLevelClient.bulk(request, RequestOptions.DEFAULT).hasFailures();
     }
 
     /**
@@ -168,12 +168,12 @@ public class ESClient {
      * @param idList 需要删除的文档id
      * @return
      */
-    public BulkResponse bulkDeleteDocument(String index, List<String> idList) throws IOException {
+    public boolean bulkDeleteDocument(String index, List<String> idList) throws IOException {
         BulkRequest request = new BulkRequest();
         for(String id : idList){
             request.add(new DeleteRequest(index, id));
         }
-        return restHighLevelClient.bulk(request, RequestOptions.DEFAULT);
+        return !restHighLevelClient.bulk(request, RequestOptions.DEFAULT).hasFailures();
     }
 
 }
