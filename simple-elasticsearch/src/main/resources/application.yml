@@ -1,0 +1,13 @@
+server:
+  port: 7182
+
+elasticsearch:
+  clusterName: es
+  hosts: 192.168.156.10:9200
+  scheme: http
+  connectTimeOut: 1000
+  socketTimeOut: 30000
+  connectionRequestTimeOut: 1000
+  maxConnectNum: 100
+  maxConnectNumPerRoute: 100
+
